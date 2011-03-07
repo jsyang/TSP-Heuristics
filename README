@@ -1,0 +1,8 @@
+2-opt and 3-opt operators to solve the sequence of
+visit locations as to achieve shortest total route
+distance. 2-opt operations are less expensive than
+3-opt, there are also 4-opt operations which have
+not been implemented since there's assumed to be
+only 1 actor making this run.
+
+jsyang.ca@gmail.com
