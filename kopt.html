@@ -1,75 +1,81 @@
-<html><script src="raphael-min.js"></script><script>
-/*******************************************************************************
+<html><style>canvas{border:dashed #000 1px;}</style><body></body><script src=gLayer.js></script><script>
+/*//////////////////////////////////////////////////////////////////////////////
 
-kOpt: graph optimization for minimum distance
-JSYANG.CA
-17/09/2010
+    kOpt: Traveling Salesmen Problem heuristics    
+    jsyang.ca@gmail.com
 
-*******************************************************************************/
+    Sept. 17, 2010          Original implementation
+    Apr. 3, 2011            Removed dependency on raphael.js,
+                            refactored everything.
 
-// simplification edit: keep it bare!
+//////////////////////////////////////////////////////////////////////////////*/
 
-function Node(x,y){
-	this.x=x;
-	this.y=y;
+function Loc(x,y)
+{
+    this.x=x;
+    this.y=y;
+    
+    this.distTo=function(otherLoc)
+    {
+        var yd=this.y-otherLoc.y;
+        var xd=this.x-otherLoc.x;
+        return Math.sqrt(xd*xd+yd*yd);
+    };
 }
 
-function Tour(nodes){
-	this.nodes=nodes;
-	this.dist=function(n){
-		var d=0; if(!n.length) return d;
-		var prevNode;
-		for(var i in n){
-			var ni=n[i];
-		    if(!prevNode){ prevNode=ni; continue; } // skip the first one
-			var yd=prevNode.y-ni.y;
-			var xd=prevNode.x-ni.x;
-			d+=Math.sqrt(xd*xd+yd*yd);
-			prevNode=ni;
-		}
-		yd=n[0].y-prevNode.y;
-		xd=n[0].x-prevNode.x;
-		d+=Math.sqrt(xd*xd+yd*yd);
-		return d;
-	};
-	this.lastDist=this.dist(nodes);
-}
-			
-
-// 	TOUR(collection of nodes in sequence) > NODE
-
-/*********************** DATA GENERATION, manipulation ************************/
-
-function makeNodes(n,xRange,yRange){
-	var nodes=[];
-	var r=Math.random;
-	var f=Math.floor;
-	
-	var xd=xRange[1]-xRange[0];
-	var yd=yRange[1]-yRange[0];
-	
-	// generate a property within that property's range
-	var gX=function(){ return xRange[0]+f(r()*xd); };
-	var gY=function(){ return yRange[0]+f(r()*yd); };
-	
-	while(n-->0) nodes.push(new Node(gX(),gY()));
-	return nodes;
+function Tour(locs)
+{
+    this.locs=locs;    
+    this.dist=function(locs)
+    {
+        var distance=0;
+        if(!!locs.length)
+        {        
+            for(var i=0, prevLoc=0; i<locs.length; prevLoc=locs[i], i++)
+            {
+                if(!i) continue;
+                distance+=prevLoc.distTo(locs[i]);
+            }           
+            distance+=prevLoc.distTo(locs[0]);
+        }        
+        return distance;
+    };
+    this.lastDist=this.dist(locs);
+    this.update=function(newLocs)
+    {
+        var newDist=this.dist(newLocs);
+        if(newDist>=this.lastDist) return;
+        this.locs=newLocs;
+        this.lastDist=newDist;
+    };
 }
 
-/*************************** K-OPT ALGORITHM METHODS ************************/
+// Generate a random Location sequence for a Tour //////////////////////////////
 
+function randomLocs(n,xRange,yRange)
+{
+    var locs=[];
+    var r=Math.random;
+    var f=Math.floor;    
+    var xd=xRange[1]-xRange[0];
+    var yd=yRange[1]-yRange[0];        
+    var gX=function(){ return xRange[0]+f(r()*xd); };
+    var gY=function(){ return yRange[0]+f(r()*yd); };
+    
+    while(n-->0) locs.push(new Loc(gX(),gY()));
+    return locs;
+}
 
-function kopt2l( tour, i, j ){
-    if( !(i<tour.nodes.length) || !(j<tour.nodes.length) || i==j ) return;
-        
-    var r0=tour.nodes.slice(0);
+// KOpt Heuristics /////////////////////////////////////////////////////////////
+
+function kopt2_SWAP(tour,i,j)
+{
+    if( !(i<tour.locs.length) || !(j<tour.locs.length) || i==j ) return;
+
+    var r0=tour.locs.slice(0);
     var r=[];
 
-    // don't just swap the two nodes at the indices, you will still have a knot
-    // elsewhere, if you don't inverse either the "interior" or the "exterior"
-
-    
-    // flip the insides/outsides
+    // Flip the inside / outside.
     var lower=(j>i)? i : j;
     var upper=(j>i)? j : i;
     var r_head=r0.slice(0,lower);
@@ -78,133 +84,118 @@ function kopt2l( tour, i, j ){
     r=r.concat(r_head);
     r=r.concat(r_body.reverse());
     r=r.concat(r_tail);
-
-    var oldDist=tour.lastDist;
-    var newDist=tour.dist(r);
-    if(newDist<oldDist){
-        tour.nodes=r;
-        tour.lastDist=newDist;
-    }
-    return tour.lastDist;
+    
+    tour.update(r);
 }
 
-// 3-opt has a MOVE and a SPLIT heuristic
-// this is only implementing MOVE, as there's no support for split yet
-// -- only dealing with 1 tour/trip at a time
+function kopt3_MOVE(tour,i,j,shift)
+//  i       Starting index of the segment
+//  j       Segment length
+//  shift   Where to shift to the new position
+{
+    if( !shift || j <=0 || i+j > tour.locs.length ) return;    
 
-function kopt3( tour, i, j, s ){
-
-    if( !s ) return;                            // no shift 
-    if( j <=0 ) return;                         // empty segment! wtf are you doing!
-    if( i+j > tour.nodes.length ) return;       // segment exceeds the length of the tour
-
-    // i = starting index of the segment
-    // j = length of the segment
-    // s = shift index
-
+    // MOVE the segment to a new place in the Tour.
+    var r0=tour.locs.slice(0);
+    var cut=r0.splice(i,j);
+    var r=r0.slice(0,i+shift);
+    r=r.concat(cut);
+    r=r.concat(r0.slice(i+shift));
     
-
-    var r0=tour.nodes.slice(0);
-    var cut=r0.splice(i,j);                     // cut the segment out
-    var r=r0.slice(0,i+s);                      // slice into the part where the cut will be inserted
-    r=r.concat(cut);                            // put the cut in
-    r=r.concat(r0.slice(i+s));                  // add the tail back into the new array
-    
-    var oldDist=tour.lastDist;
-    var newDist=tour.dist(r);
-    if(newDist<oldDist){
-        tour.nodes=r;
-        tour.lastDist=newDist;
-    }
-    return tour.lastDist;
-    
+    tour.update(r);
 }
 
-/******************************* inst. execution ******************************/
+// Set up some graphics stuff //////////////////////////////////////////////////
 
+var initialDist;
+var t;
+var t_;
+var divDist;
 
-var g;  // canvas
-var t;  // tour
-var koptI=[0,0];
+var g=new gLayer([],[800,500],function(o)
+{    
+    document.body.appendChild(document.createElement("br"));
+    document.body.appendChild(document.createElement("br"));
+    divDist=document.createElement("div");
+    document.body.appendChild(divDist);
+    
+    var div=document.createElement("div");
+    div.innerHTML=
+    "<hr><a href=javascript:KOPT2_1CYCLE()>Run a 2-Opt SWAP cycle</a><br>"+
+    "<a href=javascript:KOPT3_MOVE_1CYCLE()>Run a 3-Opt MOVE cycle</a><br>"+
+    "<a href=javascript:REVERT_TOUR()>Revert to the initial tour</a>";
+    document.body.appendChild(div);
+    
+    t_=randomLocs(50,[0,o.w],[0,o.h]);
+    t=new Tour(t_);
+    
+    initialDist=t.lastDist;
+    // Draw our initial state.
+    setTimeout("drawTour(t)",200);
+});
 
-function drawTour(tour){
+function drawTour(tour)
+{   
     g.clear();
-    var prevNode;
-    for( var i in tour.nodes ){
-        var n=tour.nodes[i];
-        var c=g.circle(n.x,n.y,3);
-        c.attr({fill:"#034"});
-        if(!!prevNode) g.path("M"+prevNode.x+" "+prevNode.y+"L"+n.x+" "+n.y);
-        prevNode=n;
+    g.c.beginPath();
+    for( var i=0; i<tour.locs.length; i++ )
+    {
+        var n=tour.locs[i];
+        g.c.fillRect(n.x-2,n.y-2,4,4);
+        if(!i)
+        {
+            g.c.moveTo(n.x,n.y);
+            continue;
+        }
+        g.c.lineTo(n.x,n.y);
     }
-    // draw the edge from last to first node
-    g.path("M"+prevNode.x+" "+prevNode.y+"L"+t.nodes[0].x+" "+t.nodes[0].y);
+    g.c.lineTo(tour.locs[0].x,tour.locs[0].y);
+    g.c.stroke();
+    
+    divDist.innerHTML="Tour distance: "+Math.round(t.lastDist)+
+    " ["+((t.lastDist*10000/initialDist)>>0)*0.01+"% original distance]";
 }
 
-/*
-var KO_1iteration=function(){
-    kopt2l(t,koptI[0],koptI[1]);
-    koptI[1]++;
-    if(koptI[1]>t.nodes.length-1){
-        koptI[0]++;
-        koptI[1]=0;
-    }
-    if(koptI[0]>t.nodes.length-1){
-        koptI[0]=0;
-        koptI[1]=1;
-    }
-    document.title=koptI;
-    drawTour(t);
-};
-*/
+// Cycle through the Tour to apply an iteration at every location //////////////
 
-var KO2_1cycle=function(){
-    for(var i=0; i<t.nodes.length; i++){
-        for(var j=1; j<t.nodes.length; j++){
-            if(i!=j) kopt2l(t,i,j);
-        }
-    }
-    drawTour(t);
-};
-
-var KO3_1cycle=function(){
-    var nl=t.nodes.length;
-    for(var i=0; i<nl; i++){
-        for(var j=1; j<nl-i; j++){
-            for(var s=-i; s<=nl-j-i; s++){
-                if(s) kopt3( t, i, j, s );
-            }
-        }
-    }
+function KOPT2_1CYCLE()
+{
+    for(var i=0; i<t.locs.length; i++)
+    for(var j=1; j<t.locs.length; j++)
+    if(i!=j) kopt2_SWAP(t,i,j);    
     drawTour(t);
 }
-/*************************** miscellaneous output functions *******************/    
-// for Concorde TSP solver
 
-function getTSPLIB(t){
+function KOPT3_MOVE_1CYCLE()
+{
+    var nl=t.locs.length;
+    for(var i=0; i<nl; i++)
+    for(var j=1; j<nl-i; j++)
+    for(var s=-i; s<=nl-j-i; s++)
+    if(s) kopt3_MOVE(t,i,j,s);    
+    drawTour(t);
+}
+
+function REVERT_TOUR()
+{    
+    drawTour(t=new Tour(t_));
+}
+
+// for Concorde TSP solver -- to double check the results //////////////////////
+function getTSPfile(t)
+{
+    var l=t.locs;
     var s=
-        "NAME : jsyang \n"+
-        "COMMENT : Nodes generated by jsyang \n"+
-        "TYPE : TSP \n"+
-        "DIMENSION : "+t.nodes.length+" \n"+
-        "EDGE_WEIGHT_TYPE : CEIL_2D \n"+
-        "NODE_COORD_SECTION\n";
-    for(var i in t.nodes){
-        s+=" "+(parseInt(i)+1)+" "+t.nodes[i].x+" "+(-t.nodes[i].y)+"\n";
-    }
+    "NAME : jsyang \n"+
+    "COMMENT : Vertices generated by jsyang \n"+
+    "TYPE : TSP \n"+
+    "DIMENSION : "+l.length+" \n"+
+    "EDGE_WEIGHT_TYPE : CEIL_2D \n"+
+    "NODE_COORD_SECTION\n";
+        
+    for(var i in l) s+=" "+(parseInt(i)+1)+" "+l[i].x+" "+(-l[i].y)+"\n";
+
     return s+"EOF\n";
 }
 
-/******************************************************************************/
-
-window.onload=function(){
-    t = new Tour(makeNodes(30,[0,700],[0,300]));
-    g = Raphael(0,0,800,600);
-
-	drawTour(t);
-	
-	//window.onmousemove=    
-    window.onclick=KO2_1cycle;
-};
-
-</script><body><div id="body"></div></body></html>
+</script></html>
