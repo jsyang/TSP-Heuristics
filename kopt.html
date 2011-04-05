@@ -68,7 +68,7 @@ function randomLocs(n,xRange,yRange)
 
 // KOpt Heuristics /////////////////////////////////////////////////////////////
 
-function kopt2_SWAP(tour,i,j)
+function kopt2_FLIP(tour,i,j)
 {
     if( !(i<tour.locs.length) || !(j<tour.locs.length) || i==j ) return;
 
@@ -162,7 +162,7 @@ function KOPT2_1CYCLE()
 {
     for(var i=0; i<t.locs.length; i++)
     for(var j=1; j<t.locs.length; j++)
-    if(i!=j) kopt2_SWAP(t,i,j);    
+    if(i!=j) kopt2_FLIP(t,i,j);    
     drawTour(t);
 }
 
