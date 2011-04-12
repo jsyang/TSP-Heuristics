@@ -66,6 +66,96 @@ function randomLocs(n,xRange,yRange)
     return locs;
 }
 
+// K-Means Clustering for Locations ////////////////////////////////////////////
+
+var KM_Loc_;
+
+function cluster_KMEANS(k,locs)
+//  locs    array of all the Locations: 1 cluster
+// -->  array of clusters
+//      each cluster is just a [], optional: first Loc is the centroid of the
+//      cluster.
+{
+    if(k>locs.length) return;
+    
+    var r=Math.random;
+    
+    // Randomly choose k centroids.
+    var centroids=[];    
+    var nodups={};
+    for(var i=k; i--;)
+    {
+        // make sure we choose unique locations for centroids.
+        do { var j=(r()*locs.length)>>0; } while(!!nodups[""+j]); nodups[""+j]=1;
+
+        centroids.push(
+            new (function(loc)
+            {
+                var _=new Loc(loc.x,loc.y);
+                _.subLocs=[];
+                _.sums=[0,0,0];
+                _.resetSumsSubs=function(){ this.sums=[0,0,0]; this.subLocs=[]; };
+                return _;
+            })(locs[j])
+        );
+    }
+    
+    function sortByDist(a,b) { return KM_Loc_.distTo(a)-KM_Loc_.distTo(b); }
+    
+    // Until all the centroids are stable, keep clustering.
+    // This is the k-means clustering algorithm.
+    for(var centroidMoves=1;centroidMoves;)
+    {
+        centroidMoves=0;
+        for(var i in centroids) centroids[i].resetSumsSubs();
+        for(var i in locs)
+        {
+            KM_Loc_=locs[i];
+            centroids.sort(sortByDist);
+            centroids[0].subLocs.push(locs[i]);
+            centroids[0].sums[0]+=locs[i].x;
+            centroids[0].sums[1]+=locs[i].y;
+            centroids[0].sums[2]++;
+        }
+        for(var i in centroids)
+        {
+            var newx=centroids[i].sums[0]/centroids[i].sums[2];
+            var newy=centroids[i].sums[1]/centroids[i].sums[2];
+            if(newx!=centroids[i].x || newy!=centroids[i].y)
+            { centroids[i].x=newx; centroids[i].y=newy; centroidMoves++; }
+        }
+    }
+
+    return centroids;
+}
+
+/* some test expressions:
+
+a=cluster_KMEANS(5,t_);
+
+g.clear();
+drawTour(new Tour(a[0].subLocs),{fillStyle:"#00f", strokeStyle:"#008"});
+drawTour(new Tour(a[1].subLocs),{fillStyle:"#f00", strokeStyle:"#800"});
+drawTour(new Tour(a[2].subLocs),{fillStyle:"#0f0", strokeStyle:"#080"});
+drawTour(new Tour(a[3].subLocs),{fillStyle:"#f0f", strokeStyle:"#808"});
+drawTour(new Tour(a[4].subLocs),{fillStyle:"#0ff", strokeStyle:"#088"});
+
+// Stitch one together
+t=new Tour(a[0].subLocs.concat(a[1].subLocs));
+drawTour(t,{fillStyle:"#000", strokeStyle:"#000"});
+
+t=new Tour(t.locs.concat(a[2].subLocs)); drawTour(t,{fillStyle:"#000", strokeStyle:"#000"});
+t=new Tour(t.locs.concat(a[3].subLocs)); drawTour(t,{fillStyle:"#000", strokeStyle:"#000"});
+t=new Tour(t.locs.concat(a[4].subLocs)); drawTour(t,{fillStyle:"#000", strokeStyle:"#000"});
+
+drawTour(new Tour(t_));
+
+// Next up is to figure out how to merge these clusters, after parallel opt,
+// to get a congregate TSP that requires minimal opt (fairly close to the optimal).
+
+*/
+
+
 // KOpt Heuristics /////////////////////////////////////////////////////////////
 
 function kopt2_FLIP(tour,i,j)
@@ -126,7 +216,7 @@ var g=new gLayer([],[800,500],function(o)
     "<a href=javascript:REVERT_TOUR()>Revert to the initial tour</a>";
     document.body.appendChild(div);
     
-    t_=randomLocs(50,[0,o.w],[0,o.h]);
+    t_=randomLocs(150,[0,o.w],[0,o.h]);
     t=new Tour(t_);
     
     initialDist=t.lastDist;
@@ -134,9 +224,15 @@ var g=new gLayer([],[800,500],function(o)
     setTimeout("drawTour(t)",200);
 });
 
-function drawTour(tour)
+function drawTour(tour,style)
+//  style   { fillStyle, strokeStyle }
 {   
-    g.clear();
+    if(style)
+    {
+        g.c.fillStyle=style.fillStyle;
+        g.c.strokeStyle=style.strokeStyle;
+    }
+
     g.c.beginPath();
     for( var i=0; i<tour.locs.length; i++ )
     {
@@ -152,8 +248,8 @@ function drawTour(tour)
     g.c.lineTo(tour.locs[0].x,tour.locs[0].y);
     g.c.stroke();
     
-    divDist.innerHTML="Tour distance: "+Math.round(t.lastDist)+
-    " ["+((t.lastDist*10000/initialDist)>>0)*0.01+"% original distance]";
+    divDist.innerHTML="Tour distance: "+Math.round(tour.lastDist)+
+    " ["+((tour.lastDist*10000/initialDist)>>0)*0.01+"% original distance]";
 }
 
 // Cycle through the Tour to apply an iteration at every location //////////////
@@ -162,7 +258,8 @@ function KOPT2_1CYCLE()
 {
     for(var i=0; i<t.locs.length; i++)
     for(var j=1; j<t.locs.length; j++)
-    if(i!=j) kopt2_FLIP(t,i,j);    
+    if(i!=j) kopt2_FLIP(t,i,j);
+    g.clear();
     drawTour(t);
 }
 
@@ -172,13 +269,15 @@ function KOPT3_MOVE_1CYCLE()
     for(var i=0; i<nl; i++)
     for(var j=1; j<nl-i; j++)
     for(var s=-i; s<=nl-j-i; s++)
-    if(s) kopt3_MOVE(t,i,j,s);    
+    if(s) kopt3_MOVE(t,i,j,s);
+    g.clear();    
     drawTour(t);
 }
 
 function REVERT_TOUR()
-{    
-    drawTour(t=new Tour(t_));
+{
+    g.clear();
+    drawTour(t=new Tour(t_),{fillStyle:"#000", strokeStyle:"#000"});
 }
 
 // for Concorde TSP solver -- to double check the results //////////////////////
