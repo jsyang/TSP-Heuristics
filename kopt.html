@@ -129,24 +129,77 @@ function cluster_KMEANS(k,locs)
     return centroids;
 }
 
+
 /* some test expressions:
 
 a=cluster_KMEANS(5,t_);
 
 g.clear();
-drawTour(new Tour(a[0].subLocs),{fillStyle:"#00f", strokeStyle:"#008"});
-drawTour(new Tour(a[1].subLocs),{fillStyle:"#f00", strokeStyle:"#800"});
-drawTour(new Tour(a[2].subLocs),{fillStyle:"#0f0", strokeStyle:"#080"});
-drawTour(new Tour(a[3].subLocs),{fillStyle:"#f0f", strokeStyle:"#808"});
-drawTour(new Tour(a[4].subLocs),{fillStyle:"#0ff", strokeStyle:"#088"});
+p=[]; for(i in a) p.push(new Tour(a[i].subLocs));
+drawTour(p[0],{fillStyle:"#00f", strokeStyle:"#008"});
+drawTour(p[1],{fillStyle:"#f00", strokeStyle:"#800"});
+drawTour(p[2],{fillStyle:"#0f0", strokeStyle:"#080"});
+drawTour(p[3],{fillStyle:"#f0f", strokeStyle:"#808"});
+drawTour(p[4],{fillStyle:"#0ff", strokeStyle:"#088"});
 
-// Stitch one together
-t=new Tour(a[0].subLocs.concat(a[1].subLocs));
-drawTour(t,{fillStyle:"#000", strokeStyle:"#000"});
+function OPTIMIZECURRENTPARTITION(oldDist,op,tries)
+{
+    if(!oldDist) oldDist=Number.POSITIVE_INFINITY;
+    g.clear(); drawTour(t,{fillStyle:"#000", strokeStyle:"#000"});
+    if(!op) { KOPT2_1CYCLE(); op=0; }
+    else    { KOPT3_MOVE_1CYCLE(); }
+    g.clear(); drawTour(t,{fillStyle:"#000", strokeStyle:"#000"});
 
-t=new Tour(t.locs.concat(a[2].subLocs)); drawTour(t,{fillStyle:"#000", strokeStyle:"#000"});
-t=new Tour(t.locs.concat(a[3].subLocs)); drawTour(t,{fillStyle:"#000", strokeStyle:"#000"});
-t=new Tour(t.locs.concat(a[4].subLocs)); drawTour(t,{fillStyle:"#000", strokeStyle:"#000"});
+    if(t.lastDist<oldDist)      setTimeout("OPTIMIZECURRENTPARTITION("+t.lastDist+","+op+",0)",10);
+    else if(tries<3)            setTimeout("OPTIMIZECURRENTPARTITION("+t.lastDist+","+((op+1)%2)+","+(tries+1)+")",10);
+    else                        divDist.innerHTML="Partition tour optimization complete. Dist: "+(t.lastDist>>0);
+}
+
+function OPTIMIZECURRENTPARTITION2OPTONLY(oldDist,tries)
+{
+    if(!oldDist) oldDist=Number.POSITIVE_INFINITY;
+    g.clear(); drawTour(t,{fillStyle:"#000", strokeStyle:"#000"});
+    KOPT2_1CYCLE();
+    g.clear(); drawTour(t,{fillStyle:"#000", strokeStyle:"#000"});
+
+    if(t.lastDist<oldDist)      setTimeout("OPTIMIZECURRENTPARTITION2OPTONLY("+t.lastDist+",0)",10);
+    else if(tries<3)            setTimeout("OPTIMIZECURRENTPARTITION2OPTONLY("+t.lastDist+","+(tries+1)+")",10);
+    else                        divDist.innerHTML="Partition tour optimization complete. Dist: "+(t.lastDist>>0);
+}
+
+// Stitch together tours which are closest.
+function MERGEINTOTOUR1(t1,t2)
+{
+    t1.locs=t1.locs.concat(t2.locs);
+    t1.lastDist=Number.POSITIVE_INFINITY;
+    drawTour(t1,{fillStyle:"#000", strokeStyle:"#000"});
+    t2.locs=[];
+    t2.lastDist=0;
+    return t1;
+}
+
+// Redraw all of them at the same time.
+function REDRAWPARTITIONS(p)
+{
+    function makeColor()
+    {    
+        function RandHexDigit() { return (((Math.random()*6)>>0)+6).toString(16); }
+        return "#"+RandHexDigit()+RandHexDigit()+RandHexDigit();
+    }
+    g.clear();    
+    for(var i in p) drawTour(p[i],{fillStyle:makeColor(), strokeStyle:"#888"},true);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+t=p[0]; OPTIMIZECURRENTPARTITION();
+
+REDRAWPARTITIONS(p);
+
+t=MERGEINTOTOUR1(p[0],p[4]); OPTIMIZECURRENTPARTITION();
+t=MERGEINTOTOUR1(p[1],p[3]); OPTIMIZECURRENTPARTITION();
+t=MERGEINTOTOUR1(p[0],p[2]); OPTIMIZECURRENTPARTITION2OPTONLY();
+t=MERGEINTOTOUR1(p[0],p[1]); OPTIMIZECURRENTPARTITION2OPTONLY();
 
 drawTour(new Tour(t_));
 
@@ -202,7 +255,7 @@ var t;
 var t_;
 var divDist;
 
-var g=new gLayer([],[800,500],function(o)
+var g=new gLayer([],[800,400],function(o)
 {    
     document.body.appendChild(document.createElement("br"));
     document.body.appendChild(document.createElement("br"));
@@ -216,7 +269,7 @@ var g=new gLayer([],[800,500],function(o)
     "<a href=javascript:REVERT_TOUR()>Revert to the initial tour</a>";
     document.body.appendChild(div);
     
-    t_=randomLocs(150,[0,o.w],[0,o.h]);
+    t_=randomLocs(200,[0,o.w],[0,o.h]);
     t=new Tour(t_);
     
     initialDist=t.lastDist;
@@ -224,9 +277,10 @@ var g=new gLayer([],[800,500],function(o)
     setTimeout("drawTour(t)",200);
 });
 
-function drawTour(tour,style)
+function drawTour(tour,style,fill)
 //  style   { fillStyle, strokeStyle }
-{   
+{
+    if(!tour.locs.length) return;
     if(style)
     {
         g.c.fillStyle=style.fillStyle;
@@ -246,7 +300,8 @@ function drawTour(tour,style)
         g.c.lineTo(n.x,n.y);
     }
     g.c.lineTo(tour.locs[0].x,tour.locs[0].y);
-    g.c.stroke();
+    if(!fill)   g.c.stroke();
+    else        g.c.fill();
     
     divDist.innerHTML="Tour distance: "+Math.round(tour.lastDist)+
     " ["+((tour.lastDist*10000/initialDist)>>0)*0.01+"% original distance]";
