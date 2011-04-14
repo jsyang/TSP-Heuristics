@@ -140,15 +140,13 @@ function CLUSTEROPTIMIZE(stage,info)
 
         var cluster=KMEANS(15,t_);
         var partition=[];
-        var styles=[];
-        for(var i=cluster.length; i--;) styles.push({fillStyle:makeColor(),strokeStyle:"#222"});
         for(var i in cluster)           partition.push(new Tour(cluster[i].subLocs));
 
         g.clear();
         // Redraw all partitions.
-        for(var i in partition) drawTour(partition[i],styles[i]); //,true (for polyfill)
+        for(var i in partition) drawTour(partition[i]);
         
-        setTimeout(function(){CLUSTEROPTIMIZE("parallelopt",{p:partition,i:0,s:styles});},800);
+        setTimeout(function(){CLUSTEROPTIMIZE("parallelopt",{p:partition,i:0});},800);
     }
     else
     if(stage=="parallelopt")
@@ -161,11 +159,11 @@ function CLUSTEROPTIMIZE(stage,info)
         if(i<partition.length)
         {
             OPTIMIZE(partition[i],BOUNDS(partition[i]));
-            setTimeout(function(){CLUSTEROPTIMIZE("parallelopt",{p:partition,i:i+1,s:styles});},200);
+            setTimeout(function(){CLUSTEROPTIMIZE("parallelopt",{p:partition,i:i+1});},200);
         }
         else
         {
-            setTimeout(function(){CLUSTEROPTIMIZE("mergeopt",{p:partition,s:styles});},200);
+            setTimeout(function(){CLUSTEROPTIMIZE("mergeopt",{p:partition,i:0,j:partition.length-1});},200);
         }
     }
     else
@@ -175,28 +173,24 @@ function CLUSTEROPTIMIZE(stage,info)
         var partition=info.p;
         var styles=info.s;
         
-        g.clear();
-        // Redraw all partitions.
-        for(var i=partition.length; i--;) drawTour(
-        partition[i],
-        styles[i],
-        true);
+        //g.clear();
         
-        var newPartition=[];
-        var i=0;
-        var j=partition.length-1;
+        var i=info.i;
+        var j=info.j;
         if(j>0)
         {
+            // merge smaller partitions first before moving onto the big fish
+            if(j<=i) return setTimeout(function(){CLUSTEROPTIMIZE("mergeopt",{p:partition.slice(0),i:0,j:partition.length-1});},200);
+            
             MERGEINTOTOUR1(partition[i],partition[j]);
             OPTIMIZE(partition[i],BOUNDS(partition[i]),0,0,0,true);
-            newPartition=partition.slice(0,j);
-            if(newPartition.length>1) setTimeout(function(){CLUSTEROPTIMIZE("mergeopt",{p:newPartition,s:styles});},200);
+            setTimeout(function(){CLUSTEROPTIMIZE("mergeopt",{p:partition.slice(0,j),i:i+1,j:j-1});},200);
         }
         else
         {
             OPTIMIZE(partition[0],BOUNDS(partition[0]),0,0,0,true);
             divDist.innerHTML+=" **** Cluster Optimization Done ****";
-        }        
+        }
     }
 }
 
