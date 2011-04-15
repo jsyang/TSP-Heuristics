@@ -1,54 +1,19 @@
-<html><style>canvas{border:dashed #000 1px;}</style><body></body><script src=gLayer.js></script><script>
+<html><style>canvas{border:dashed #000 1px;}</style><body></body>
+<script src=gLayer.js></script>
+<script src=entity.js></script>
+<script src=ops.js></script>
+<script>
 /*//////////////////////////////////////////////////////////////////////////////
 
     kOpt: Traveling Salesmen Problem heuristics    
     jsyang.ca@gmail.com
 
-    Sept. 17, 2010          Original implementation
-    Apr. 3, 2011            Removed dependency on raphael.js,
-                            refactored everything.
-
+    Sept. 17, 2010  Original implementation
+    Apr. 3, 2011    Removed dependency on raphael.js, refactored everything.
+    Apr. 14, 2011   Github updates and further changes logged to the repo.
+    Apr. 15, 2011   Refactor to use web workers.
+                            
 //////////////////////////////////////////////////////////////////////////////*/
-
-function Loc(x,y)
-{
-    this.x=x;
-    this.y=y;
-    
-    this.distTo=function(otherLoc)
-    {
-        var yd=this.y-otherLoc.y;
-        var xd=this.x-otherLoc.x;
-        return Math.sqrt(xd*xd+yd*yd);
-    };
-}
-
-function Tour(locs)
-{
-    this.locs=locs;    
-    this.dist=function(locs)
-    {
-        var distance=0;
-        if(!!locs.length)
-        {        
-            for(var i=0, prevLoc=0; i<locs.length; prevLoc=locs[i], i++)
-            {
-                if(!i) continue;
-                distance+=prevLoc.distTo(locs[i]);
-            }           
-            distance+=prevLoc.distTo(locs[0]);
-        }        
-        return distance;
-    };
-    this.lastDist=this.dist(locs);
-    this.update=function(newLocs)
-    {
-        var newDist=this.dist(newLocs);
-        if(newDist>=this.lastDist) return;
-        this.locs=newLocs;
-        this.lastDist=newDist;
-    };
-}
 
 // Generate a random Location sequence for a Tour //////////////////////////////
 
@@ -72,7 +37,7 @@ var KM_Loc_;
 
 function KMEANS(k,locs)
 // locs     array of all the Locations: 1 cluster
-// Returns clusters[]; of which, each element is a locs[] (subset of original argument "locs").
+// Returns clusters[]; of which, each element has a subLocs[] (subset of original argument "locs").
 {
     if(k>locs.length) return;
     
@@ -127,20 +92,15 @@ function KMEANS(k,locs)
     return centroids;
 }
 
+
 function CLUSTEROPTIMIZE(stage,info)
 {
     if(stage=="init")
     // #1 - cluster.
     {
-        function makeColor()
-        {    
-            function RandHexDigit() { return (((Math.random()*10)>>0)+6).toString(16); }
-            return "#"+RandHexDigit()+RandHexDigit()+RandHexDigit();
-        }
-
         var cluster=KMEANS(10,t_);
         var partition=[];
-        for(var i in cluster)           partition.push(new Tour(cluster[i].subLocs));
+        for(var i in cluster) partition.push(new Tour(cluster[i].subLocs));
 
         g.clear();
         // Redraw all partitions.
@@ -194,44 +154,6 @@ function CLUSTEROPTIMIZE(stage,info)
     }
 }
 
-// KOpt Heuristics /////////////////////////////////////////////////////////////
-
-function FLIP(tour,i,j)
-{
-    if( !(i<tour.locs.length) || !(j<tour.locs.length) || i==j ) return;
-
-    var r0=tour.locs.slice(0);
-    var r=[];
-
-    // Flip the inside / outside.
-    var lower=(j>i)? i : j;
-    var upper=(j>i)? j : i;
-    var r_head=r0.slice(0,lower);
-    var r_body=r0.slice(lower,upper);
-    var r_tail=r0.slice(upper);
-    r=r.concat(r_head);
-    r=r.concat(r_body.reverse());
-    r=r.concat(r_tail);
-    
-    tour.update(r);
-}
-
-function MOVE(tour,i,j,shift)
-//  i       Starting index of the segment
-//  j       Segment length
-//  shift   Where to shift to the new position
-{
-    if( !shift || j <=0 || i+j > tour.locs.length ) return;    
-
-    // MOVE the segment to a new place in the Tour.
-    var r0=tour.locs.slice(0);
-    var cut=r0.splice(i,j);
-    var r=r0.slice(0,i+shift);
-    r=r.concat(cut);
-    r=r.concat(r0.slice(i+shift));
-    
-    tour.update(r);
-}
 
 // Set up some graphics stuff //////////////////////////////////////////////////
 
@@ -249,10 +171,7 @@ var g=new gLayer([],[800,300],function(o)
     
     var div=document.createElement("div");
     div.innerHTML=
-    "<hr><a href=javascript:FLIP_1CYCLE(gTour)>Run a 2-Opt FLIP cycle</a><br>"+
-    "<a href=javascript:MOVE_1CYCLE(gTour)>Run a 3-Opt MOVE cycle</a><br>"+
-    "<a href=javascript:REVERT_TOUR(gTour)>Revert to the initial tour</a><hr>"+
-    "<a href=javascript:CLUSTEROPTIMIZE('init')>Full clustering and parallelization optimization</a>";
+    "<hr><a href=javascript:CLUSTEROPTIMIZE('init')>Full clustering and parallelization optimization</a>";
     document.body.appendChild(div);
     
     t_=randomLocs(100,[0,o.w],[0,o.h]);
@@ -293,77 +212,6 @@ function drawTour(tour,style,fill)
     " ["+((tour.lastDist*10000/initialDist)>>0)*0.01+"% original distance]";
 }
 
-// Cycle through the Tour to apply an iteration at every location //////////////
-
-function FLIP_1CYCLE(t)
-{
-    for(var i=0; i<t.locs.length; i++)
-    for(var j=1; j<t.locs.length; j++)
-    if(i!=j) FLIP(t,i,j);
-    g.clear();
-    drawTour(t);
-}
-
-function MOVE_1CYCLE(t)
-{
-    var nl=t.locs.length;
-    for(var i=0; i<nl; i++)
-    for(var j=1; j<nl-i; j++)
-    for(var s=-i; s<=nl-j-i; s++)
-    if(s) MOVE(t,i,j,s);
-    g.clear();    
-    drawTour(t);
-}
-
-function REVERT_TOUR(t)
-{
-    g.clear();
-    drawTour(t=new Tour(t_),{fillStyle:"#000", strokeStyle:"#000"});
-}
-
-// Work with the products of clustering ////////////////////////////////////////
-
-function BOUNDS(t)
-// Find the drawing bounds of the tour -- for updating the canvas.
-{
-    var maxX=t.locs[0].x;
-    var maxY=t.locs[0].y;
-    var minX=maxX;
-    var minY=maxY;
-    for(var i in t.locs)
-    {
-        var l=t.locs[i];
-        if(maxX<l.x) maxX=l.x;  if(maxY<l.y) maxY=l.y;
-        if(minX>l.x) minX=l.x;  if(minY>l.y) minY=l.y;
-    }
-    return [minX,minY,maxX,maxY];
-}
-
-function OPTIMIZE(t,bounds,oldDist,op,tries,flipOnly)
-// Optimize to the extent that FLIP and MOVE operations will permit.
-{
-    if(!oldDist)    oldDist=Number.POSITIVE_INFINITY;
-
-    if(!op)         { FLIP_1CYCLE(t); op=0; }
-    else            { MOVE_1CYCLE(t); }
-    
-    // Only clear the area we're updating.
-    //g.c.clearRect(bounds[0],bounds[1],bounds[2]-bounds[0],bounds[3]-bounds[1]);
-    drawTour(t,{fillStyle:"#000", strokeStyle:"#000"});
-
-    if(t.lastDist<oldDist) OPTIMIZE(t,bounds,t.lastDist,op,0,flipOnly);
-    else if(tries<3)       OPTIMIZE(t,bounds,t.lastDist,flipOnly? 0 : ((op+1)%2),tries+1,flipOnly);
-    else                   divDist.innerHTML="Partition tour optimization complete. Dist: "+(t.lastDist>>0);
-}
-
-function MERGEINTOTOUR1(t1,t2)
-// Stitch together tours which are closest.
-{
-    t1.locs=t1.locs.concat(t2.locs);    t1.lastDist=Number.POSITIVE_INFINITY;
-    t2.locs=[];                         t2.lastDist=0;
-    drawTour(t1,{fillStyle:"#000", strokeStyle:"#000"});    
-    return t1;
-}
 
 // for Concorde TSP solver -- to double check the results //////////////////////
 function getTSPfile(t)
