@@ -24,14 +24,14 @@ function Tour(locs)
         if(!locs.length) return;
         for(var i=0, distance=0, prevLoc=locs[locs.length-1]; i<locs.length; prevLoc=locs[i], i++)
         distance+=prevLoc.distTo(locs[i]);        
-        return distance;
+        return Math.sqrt(distance);
     };
     
-    this.lastDist=Math.sqrt(this.dist(locs));
+    this.lastDist=this.dist(locs);
     
     this.update=function(newLocs)
     {
-        var newDist=Math.sqrt(this.dist(newLocs));
+        var newDist=this.dist(newLocs);
         if(newDist>=this.lastDist) return;
         this.locs=newLocs;
         this.lastDist=newDist;
@@ -40,6 +40,6 @@ function Tour(locs)
     this.merge=function(otherTour)
     {
         this.locs=this.locs.concat(otherTour.locs);
-        this.lastDist=Math.sqrt(this.dist(this.locs));
+        this.lastDist=this.dist(this.locs);
     };
 }

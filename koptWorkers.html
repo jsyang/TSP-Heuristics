@@ -3,19 +3,19 @@
 <script src=entity.js></script>
 <script src=ops.js></script>
 <script>
-/*//////////////////////////////////////////////////////////////////////////////
+/*//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
     kOpt: Traveling Salesmen Problem heuristics    
     jsyang.ca@gmail.com
 
     Sept. 17, 2010  Original implementation
-    Apr. 3, 2011    Removed dependency on raphael.js, refactored everything.
-    Apr. 14, 2011   Github updates and further changes logged to the repo.
-    Apr. 15, 2011   Refactor to use web workers.
-                            
-//////////////////////////////////////////////////////////////////////////////*/
+    Apr.   3, 2011  Removed dependency on raphael.js, refactored everything.
+    Apr.  14, 2011  Github updates and further changes logged to the repo.
+    Apr.  15, 2011  Refactor to use web workers.
 
-// Generate a random Location sequence for a Tour //////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////*/
+
+// Generate a random Location sequence for a Tour //////////////////////////////////////////////////////////////////////
 
 function randomLocs(n,xRange,yRange)
 {
@@ -27,17 +27,77 @@ function randomLocs(n,xRange,yRange)
     var gX=function(){ return xRange[0]+f(r()*xd); };
     var gY=function(){ return yRange[0]+f(r()*yd); };
     
-    while(n-->0) locs.push(new Loc(gX(),gY()));
+    while(n--) locs.push(new Loc(gX(),gY()));
     return locs;
 }
 
-// K-Means Clustering for Locations ////////////////////////////////////////////
+// K-Means Clustering for Locations ////////////////////////////////////////////////////////////////////////////////////
+// Responsibility for partition and distributing optimizing computations lies with the parent page.
+// K-means determines the the partitions to offload
 
 var KM_Loc_;
 
 function KMEANS(k,locs)
 // locs     array of all the Locations: 1 cluster
 // Returns clusters[]; of which, each element has a subLocs[] (subset of original argument "locs").
+{
+    if(k>locs.length) return;
+    
+    var r=Math.random;
+    
+    // Randomly choose k centroids.
+    var centroids=[];    
+    var nodups={};
+    for(var i=k; i--;)
+    {
+        // make sure we choose unique locations for centroids.
+        do { var j=(r()*locs.length)>>0; } while(!!nodups[""+j]); nodups[""+j]=1;
+
+        centroids.push(
+            new (function(loc)
+            {
+                var _=new Loc(loc.x,loc.y);
+                _.subLocs=[];
+                _.sums=[0,0,0];
+                _.resetSumsSubs=function(){ this.sums=[0,0,0]; this.subLocs=[]; };
+                return _;
+            })(locs[j])
+        );
+    }
+    
+    function sortByDist(a,b) { return KM_Loc_.distTo(a)-KM_Loc_.distTo(b); }
+    
+    // Until all the centroids are stable, keep clustering.
+    // This is the k-means clustering algorithm.
+    for(var centroidMoves=1;centroidMoves;)
+    {
+        centroidMoves=0;
+        for(var i in centroids) centroids[i].resetSumsSubs();
+        for(var i in locs)
+        {
+            KM_Loc_=locs[i];
+            centroids.sort(sortByDist);
+            centroids[0].subLocs.push(locs[i]);
+            centroids[0].sums[0]+=locs[i].x;
+            centroids[0].sums[1]+=locs[i].y;
+            centroids[0].sums[2]++;
+        }
+        for(var i in centroids)
+        {
+            var newx=centroids[i].sums[0]/centroids[i].sums[2];
+            var newy=centroids[i].sums[1]/centroids[i].sums[2];
+            if(newx!=centroids[i].x || newy!=centroids[i].y)
+            { centroids[i].x=newx; centroids[i].y=newy; centroidMoves++; }
+        }
+    }
+
+    return centroids;
+}
+
+function KplusMEANS(k,locs)
+// locs     array of all the Locations: 1 cluster
+// Returns clusters[]; of which, each element has a subLocs[] (subset of original argument "locs").
+// Different from straight K-means
 {
     if(k>locs.length) return;
     
@@ -154,6 +214,25 @@ function CLUSTEROPTIMIZE(stage,info)
     }
 }
 
+// Worker manager //////////////////////////////////////////////////////////////////////////////////////////////////////
+
+var mgr=new (function()
+{
+
+    this.workerFeedback=function(e)
+    {
+        
+    };
+    
+    this.workers=[];
+    for(var i=5; i--;) this.workers.push(new Worker("worker.js"));
+    for(var i=5; i--;) this.workers[i].onmessage=this.workerFeedback;
+
+
+    // Hand out work to the workers in the proper proportions
+    
+    
+})();
 
 // Set up some graphics stuff //////////////////////////////////////////////////
 
