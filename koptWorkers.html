@@ -1,0 +1,388 @@
+<html><style>canvas{border:dashed #000 1px;}</style><body></body>
+<script src=gLayer.js></script>
+<script src=entity.js></script>
+<script src=ops.js></script>
+<script>
+/*//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+    kOpt: Traveling Salesmen Problem heuristics    
+    jsyang.ca@gmail.com
+
+    Sept. 17, 2010  Original implementation
+    Apr.   3, 2011  Removed dependency on raphael.js, refactored everything.
+    Apr.  14, 2011  Github updates and further changes logged to the repo.
+    Apr.  15, 2011  Refactor to use web workers.
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////*/
+
+// Generate a random Location sequence for a Tour //////////////////////////////////////////////////////////////////////
+
+function randomLocs(n,xRange,yRange)
+{
+    var locs=[];
+    var r=Math.random;
+    var f=Math.floor;    
+    var xd=xRange[1]-xRange[0];
+    var yd=yRange[1]-yRange[0];        
+    var gX=function(){ return xRange[0]+f(r()*xd); };
+    var gY=function(){ return yRange[0]+f(r()*yd); };
+    
+    while(n--) locs.push(new Loc(gX(),gY()));
+    return locs;
+}
+
+// K-Means Clustering for Locations ////////////////////////////////////////////////////////////////////////////////////
+// Responsibility for partition and distributing optimizing computations lies with the parent page.
+// K-means determines the the partitions to offload
+
+var KM_Loc_;
+
+function KMEANS(k,locs)
+// locs     array of all the Locations: 1 cluster
+// Returns clusters[]; of which, each element has a subLocs[] (subset of original argument "locs").
+{
+    if(k>locs.length) return;
+    
+    var r=Math.random;
+    
+    // Randomly choose k centroids.
+    var centroids=[];    
+    var nodups={};
+    for(var i=k; i--;)
+    {
+        // make sure we choose unique locations for centroids.
+        do { var j=(r()*locs.length)>>0; } while(!!nodups[""+j]); nodups[""+j]=1;
+
+        centroids.push(
+            new (function(loc)
+            {
+                var _=new Loc(loc.x,loc.y);
+                _.subLocs=[];
+                _.sums=[0,0,0];
+                _.resetSumsSubs=function(){ this.sums=[0,0,0]; this.subLocs=[]; };
+                return _;
+            })(locs[j])
+        );
+    }
+    
+    function sortByDist(a,b) { return KM_Loc_.distTo(a)-KM_Loc_.distTo(b); }
+    
+    // Until all the centroids are stable, keep clustering.
+    // This is the k-means clustering algorithm.
+    for(var centroidMoves=1;centroidMoves;)
+    {
+        centroidMoves=0;
+        for(var i in centroids) centroids[i].resetSumsSubs();
+        for(var i in locs)
+        {
+            KM_Loc_=locs[i];
+            centroids.sort(sortByDist);
+            centroids[0].subLocs.push(locs[i]);
+            centroids[0].sums[0]+=locs[i].x;
+            centroids[0].sums[1]+=locs[i].y;
+            centroids[0].sums[2]++;
+        }
+        for(var i in centroids)
+        {
+            var newx=centroids[i].sums[0]/centroids[i].sums[2];
+            var newy=centroids[i].sums[1]/centroids[i].sums[2];
+            if(newx!=centroids[i].x || newy!=centroids[i].y)
+            { centroids[i].x=newx; centroids[i].y=newy; centroidMoves++; }
+        }
+    }
+
+    return centroids;
+}
+
+function KplusMEANS(k,locs)
+// locs     array of all the Locations: 1 cluster
+// Returns clusters[]; of which, each element has a subLocs[] (subset of original argument "locs").
+// Different from straight K-means
+{
+    if(k>locs.length) return;
+    
+    var r=Math.random;
+    
+    // Randomly choose k centroids.
+    var centroids=[];    
+    var nodups={};
+    for(var i=k; i--;)
+    {
+        // make sure we choose unique locations for centroids.
+        do { var j=(r()*locs.length)>>0; } while(!!nodups[""+j]); nodups[""+j]=1;
+
+        centroids.push(
+            new (function(loc)
+            {
+                var _=new Loc(loc.x,loc.y);
+                _.subLocs=[];
+                _.sums=[0,0,0];
+                _.resetSumsSubs=function(){ this.sums=[0,0,0]; this.subLocs=[]; };
+                return _;
+            })(locs[j])
+        );
+    }
+    
+    function sortByDist(a,b) { return KM_Loc_.distTo(a)-KM_Loc_.distTo(b); }
+    
+    // Until all the centroids are stable, keep clustering.
+    // This is the k-means clustering algorithm.
+    for(var centroidMoves=1;centroidMoves;)
+    {
+        centroidMoves=0;
+        for(var i in centroids) centroids[i].resetSumsSubs();
+        for(var i in locs)
+        {
+            KM_Loc_=locs[i];
+            centroids.sort(sortByDist);
+            centroids[0].subLocs.push(locs[i]);
+            centroids[0].sums[0]+=locs[i].x;
+            centroids[0].sums[1]+=locs[i].y;
+            centroids[0].sums[2]++;
+        }
+        for(var i in centroids)
+        {
+            var newx=centroids[i].sums[0]/centroids[i].sums[2];
+            var newy=centroids[i].sums[1]/centroids[i].sums[2];
+            if(newx!=centroids[i].x || newy!=centroids[i].y)
+            { centroids[i].x=newx; centroids[i].y=newy; centroidMoves++; }
+        }
+    }
+
+    return centroids;
+}
+
+
+function CLUSTEROPTIMIZE(stage,info)
+{
+    if(stage=="init")
+    // #1 - cluster.
+    {
+        var cluster=KMEANS(10,t_);
+        var partition=[];
+        for(var i in cluster) partition.push(new Tour(cluster[i].subLocs));
+
+        g.clear();
+        // Redraw all partitions.
+        for(var i in partition) drawTour(partition[i]);
+        
+        setTimeout(function(){CLUSTEROPTIMIZE("parallelopt",{p:partition,i:0});},800);
+    }
+    else
+    if(stage=="parallelopt")
+    // #2 - optimize each cluster individually
+    {
+        var partition=info.p;
+        var i=info.i;
+        var styles=info.s;
+        
+        if(i<partition.length)
+        {
+            OPTIMIZE(partition[i],BOUNDS(partition[i]));
+            setTimeout(function(){CLUSTEROPTIMIZE("parallelopt",{p:partition,i:i+1});},200);
+        }
+        else
+        {
+            setTimeout(function(){CLUSTEROPTIMIZE("mergeopt",{p:partition,i:0,j:partition.length-1});},200);
+        }
+    }
+    else
+    if(stage=="mergeopt")
+    // #3 - merge the clusters together to get 1 giant tour
+    {    
+        var partition=info.p;
+        var styles=info.s;
+        
+        //g.clear();
+        
+        var i=info.i;
+        var j=info.j;
+        if(j>0)
+        {
+            // merge smaller partitions first before moving onto the big fish
+            if(j<=i) return setTimeout(function(){CLUSTEROPTIMIZE("mergeopt",{p:partition.slice(0),i:0,j:partition.length-1});},200);
+            
+            MERGEINTOTOUR1(partition[i],partition[j]);
+            OPTIMIZE(partition[i],BOUNDS(partition[i]),0,0,0,true);
+            setTimeout(function(){CLUSTEROPTIMIZE("mergeopt",{p:partition.slice(0,j),i:i+1,j:j-1});},200);
+        }
+        else
+        {
+            OPTIMIZE(partition[0],BOUNDS(partition[0]),0,0,0,true);
+            divDist.innerHTML+=" **** Cluster Optimization Done ****";
+        }
+    }
+}
+
+// Worker manager //////////////////////////////////////////////////////////////////////////////////////////////////////
+
+function LocsToJSON(locs)
+{
+    var json="";
+    for(var i=0; i<locs.length; i++)
+    {
+        json+="["+locs[i].x+","+locs[i].y+"]";
+        json+=(i==locs.length-1)? "":",";
+    }
+    return "["+json+"]";
+}
+
+function WorkerManager(locs)
+{
+    // Receives a message from a worker
+    this.workerFeedback=function(e)
+    {
+        var msg=e.data.split(":");
+        switch(msg[0])
+        {
+            case "initdone":
+                this.parent.workersAvailable.push(this);
+                break;
+            
+            case "opt2only":
+            case "opt":
+                var newCluster=[];
+                var sequence=eval(msg[1]);
+                for(var i in sequence)
+                {
+                    newCluster.push(this.cluster[sequence[i]]);
+                }
+                this.parent.clustersDONE.push(newCluster);
+                // Draw recently optimized tour.
+                drawTour(new Tour(newCluster));
+                this.isComputing=0;
+                this.parent.optCluste
+                break;
+        }
+    };
+    
+    // Set a new index for each of Locs, keep original sequence so we match the original
+    // order of the Locs we send each worker.
+    // for(var i=locs.length; i--;) locs[i].newIndex=0;
+    // *** not needed ***
+    
+    // Create and init workers with the 
+    this.workers=[];
+    for(var i=5; i--;)
+    {
+        var w=new Worker("worker.js");
+        w.onmessage=this.workerDone;
+        w.isComputing=0;
+        w.parent=this;
+        w.cluster=undefined;
+        w.postMessage("init:"+LocsToJSON(locs));
+        this.workers.push(w);
+    }
+
+    
+    
+    
+    // You could also initially set the worker up with all the locations so that each one
+    // won't have to be init every time it needs to do an opt. Probably a better idea...
+    
+    // Hand out work to the workers in the proper proportions
+    this.optCluster=function()
+    {
+        if(this.clustersTODO.length+this.clustersDONE.length<2) return;
+        if(!this.clustersTODO.length)
+        {
+            this.clustersTODO=this.clustersDONE;
+            
+            // TODO: Merge the done clusters here.
+            // Then set that as the new stuff to opt.
+            
+            this.clustersDONE=[];
+        }
+        else
+        {
+            for(var i in this.workers)
+            {
+                var w=this.workers[i];
+                if(w.isComputing) continue;
+                w.cluster=this.clusterTODO.shift();
+                w.isComputing=1;
+                w.postMessage("init:"+LocsToArray(w.cluster));
+            }
+        }
+    };
+    
+}
+
+// Set up some graphics stuff //////////////////////////////////////////////////
+
+var initialDist;
+var gTour;
+var t_;
+var divDist;
+
+
+
+var g=new gLayer([],[800,300],function(o)
+{    
+    document.body.appendChild(document.createElement("br"));
+    document.body.appendChild(document.createElement("br"));
+    divDist=document.createElement("div");
+    document.body.appendChild(divDist);
+    
+    var div=document.createElement("div");
+    div.innerHTML=
+    "<hr><a href=javascript:CLUSTEROPTIMIZE('init')>Full clustering and parallelization optimization</a>";
+    document.body.appendChild(div);
+    
+    t_=randomLocs(100,[0,o.w],[0,o.h]);
+    gTour=new Tour(t_);
+    
+    initialDist=gTour.lastDist;
+    // Draw our initial state.
+    setTimeout(function(){drawTour(gTour);},200);
+});
+
+function drawTour(tour,style,fill)
+//  style   { fillStyle, strokeStyle }
+{
+    if(!tour.locs.length) return;
+    if(style)
+    {
+        g.c.fillStyle=style.fillStyle;
+        g.c.strokeStyle=style.strokeStyle;
+    }
+
+    g.c.beginPath();
+    for( var i=0; i<tour.locs.length; i++ )
+    {
+        var n=tour.locs[i];
+        g.c.fillRect(n.x-2,n.y-2,4,4);
+        if(!i)
+        {
+            g.c.moveTo(n.x,n.y);
+            continue;
+        }
+        g.c.lineTo(n.x,n.y);
+    }
+    g.c.lineTo(tour.locs[0].x,tour.locs[0].y);
+    if(!fill)   g.c.stroke();
+    else        g.c.fill();
+    
+    divDist.innerHTML="Tour distance: "+Math.round(tour.lastDist)+
+    " ["+((tour.lastDist*10000/initialDist)>>0)*0.01+"% original distance]";
+}
+
+
+// for Concorde TSP solver -- to double check the results //////////////////////
+function getTSPfile(t)
+{
+    var l=t.locs;
+    var s=
+    "NAME : jsyang \n"+
+    "COMMENT : Vertices generated by jsyang \n"+
+    "TYPE : TSP \n"+
+    "DIMENSION : "+l.length+" \n"+
+    "EDGE_WEIGHT_TYPE : CEIL_2D \n"+
+    "NODE_COORD_SECTION\n";
+        
+    for(var i in l) s+=" "+(parseInt(i)+1)+" "+l[i].x+" "+(-l[i].y)+"\n";
+
+    return s+"EOF\n";
+}
+
+</script></html>

@@ -70,11 +70,9 @@ function randomLocs(n,xRange,yRange)
 
 var KM_Loc_;
 
-function cluster_KMEANS(k,locs)
-//  locs    array of all the Locations: 1 cluster
-// -->  array of clusters
-//      each cluster is just a [], optional: first Loc is the centroid of the
-//      cluster.
+function KMEANS(k,locs)
+// locs     array of all the Locations: 1 cluster
+// Returns clusters[]; of which, each element is a locs[] (subset of original argument "locs").
 {
     if(k>locs.length) return;
     
@@ -129,89 +127,76 @@ function cluster_KMEANS(k,locs)
     return centroids;
 }
 
-
-/* some test expressions:
-
-a=cluster_KMEANS(5,t_);
-
-g.clear();
-p=[]; for(i in a) p.push(new Tour(a[i].subLocs));
-drawTour(p[0],{fillStyle:"#00f", strokeStyle:"#008"});
-drawTour(p[1],{fillStyle:"#f00", strokeStyle:"#800"});
-drawTour(p[2],{fillStyle:"#0f0", strokeStyle:"#080"});
-drawTour(p[3],{fillStyle:"#f0f", strokeStyle:"#808"});
-drawTour(p[4],{fillStyle:"#0ff", strokeStyle:"#088"});
-
-function OPTIMIZECURRENTPARTITION(oldDist,op,tries)
+function CLUSTEROPTIMIZE(stage,info)
 {
-    if(!oldDist) oldDist=Number.POSITIVE_INFINITY;
-    g.clear(); drawTour(t,{fillStyle:"#000", strokeStyle:"#000"});
-    if(!op) { KOPT2_1CYCLE(); op=0; }
-    else    { KOPT3_MOVE_1CYCLE(); }
-    g.clear(); drawTour(t,{fillStyle:"#000", strokeStyle:"#000"});
+    if(stage=="init")
+    // #1 - cluster.
+    {
+        function makeColor()
+        {    
+            function RandHexDigit() { return (((Math.random()*10)>>0)+6).toString(16); }
+            return "#"+RandHexDigit()+RandHexDigit()+RandHexDigit();
+        }
 
-    if(t.lastDist<oldDist)      setTimeout("OPTIMIZECURRENTPARTITION("+t.lastDist+","+op+",0)",10);
-    else if(tries<3)            setTimeout("OPTIMIZECURRENTPARTITION("+t.lastDist+","+((op+1)%2)+","+(tries+1)+")",10);
-    else                        divDist.innerHTML="Partition tour optimization complete. Dist: "+(t.lastDist>>0);
-}
+        var cluster=KMEANS(10,t_);
+        var partition=[];
+        for(var i in cluster)           partition.push(new Tour(cluster[i].subLocs));
 
-function OPTIMIZECURRENTPARTITION2OPTONLY(oldDist,tries)
-{
-    if(!oldDist) oldDist=Number.POSITIVE_INFINITY;
-    g.clear(); drawTour(t,{fillStyle:"#000", strokeStyle:"#000"});
-    KOPT2_1CYCLE();
-    g.clear(); drawTour(t,{fillStyle:"#000", strokeStyle:"#000"});
-
-    if(t.lastDist<oldDist)      setTimeout("OPTIMIZECURRENTPARTITION2OPTONLY("+t.lastDist+",0)",10);
-    else if(tries<3)            setTimeout("OPTIMIZECURRENTPARTITION2OPTONLY("+t.lastDist+","+(tries+1)+")",10);
-    else                        divDist.innerHTML="Partition tour optimization complete. Dist: "+(t.lastDist>>0);
-}
-
-// Stitch together tours which are closest.
-function MERGEINTOTOUR1(t1,t2)
-{
-    t1.locs=t1.locs.concat(t2.locs);
-    t1.lastDist=Number.POSITIVE_INFINITY;
-    drawTour(t1,{fillStyle:"#000", strokeStyle:"#000"});
-    t2.locs=[];
-    t2.lastDist=0;
-    return t1;
-}
-
-// Redraw all of them at the same time.
-function REDRAWPARTITIONS(p)
-{
-    function makeColor()
-    {    
-        function RandHexDigit() { return (((Math.random()*6)>>0)+6).toString(16); }
-        return "#"+RandHexDigit()+RandHexDigit()+RandHexDigit();
+        g.clear();
+        // Redraw all partitions.
+        for(var i in partition) drawTour(partition[i]);
+        
+        setTimeout(function(){CLUSTEROPTIMIZE("parallelopt",{p:partition,i:0});},800);
     }
-    g.clear();    
-    for(var i in p) drawTour(p[i],{fillStyle:makeColor(), strokeStyle:"#888"},true);
+    else
+    if(stage=="parallelopt")
+    // #2 - optimize each cluster individually
+    {
+        var partition=info.p;
+        var i=info.i;
+        var styles=info.s;
+        
+        if(i<partition.length)
+        {
+            OPTIMIZE(partition[i],BOUNDS(partition[i]));
+            setTimeout(function(){CLUSTEROPTIMIZE("parallelopt",{p:partition,i:i+1});},200);
+        }
+        else
+        {
+            setTimeout(function(){CLUSTEROPTIMIZE("mergeopt",{p:partition,i:0,j:partition.length-1});},200);
+        }
+    }
+    else
+    if(stage=="mergeopt")
+    // #3 - merge the clusters together to get 1 giant tour
+    {    
+        var partition=info.p;
+        var styles=info.s;
+        
+        //g.clear();
+        
+        var i=info.i;
+        var j=info.j;
+        if(j>0)
+        {
+            // merge smaller partitions first before moving onto the big fish
+            if(j<=i) return setTimeout(function(){CLUSTEROPTIMIZE("mergeopt",{p:partition.slice(0),i:0,j:partition.length-1});},200);
+            
+            MERGEINTOTOUR1(partition[i],partition[j]);
+            OPTIMIZE(partition[i],BOUNDS(partition[i]),0,0,0,true);
+            setTimeout(function(){CLUSTEROPTIMIZE("mergeopt",{p:partition.slice(0,j),i:i+1,j:j-1});},200);
+        }
+        else
+        {
+            OPTIMIZE(partition[0],BOUNDS(partition[0]),0,0,0,true);
+            divDist.innerHTML+=" **** Cluster Optimization Done ****";
+        }
+    }
 }
-
-////////////////////////////////////////////////////////////////////////////////
-
-t=p[0]; OPTIMIZECURRENTPARTITION();
-
-REDRAWPARTITIONS(p);
-
-t=MERGEINTOTOUR1(p[0],p[4]); OPTIMIZECURRENTPARTITION();
-t=MERGEINTOTOUR1(p[1],p[3]); OPTIMIZECURRENTPARTITION();
-t=MERGEINTOTOUR1(p[0],p[2]); OPTIMIZECURRENTPARTITION2OPTONLY();
-t=MERGEINTOTOUR1(p[0],p[1]); OPTIMIZECURRENTPARTITION2OPTONLY();
-
-drawTour(new Tour(t_));
-
-// Next up is to figure out how to merge these clusters, after parallel opt,
-// to get a congregate TSP that requires minimal opt (fairly close to the optimal).
-
-*/
-
 
 // KOpt Heuristics /////////////////////////////////////////////////////////////
 
-function kopt2_FLIP(tour,i,j)
+function FLIP(tour,i,j)
 {
     if( !(i<tour.locs.length) || !(j<tour.locs.length) || i==j ) return;
 
@@ -231,7 +216,7 @@ function kopt2_FLIP(tour,i,j)
     tour.update(r);
 }
 
-function kopt3_MOVE(tour,i,j,shift)
+function MOVE(tour,i,j,shift)
 //  i       Starting index of the segment
 //  j       Segment length
 //  shift   Where to shift to the new position
@@ -251,11 +236,11 @@ function kopt3_MOVE(tour,i,j,shift)
 // Set up some graphics stuff //////////////////////////////////////////////////
 
 var initialDist;
-var t;
+var gTour;
 var t_;
 var divDist;
 
-var g=new gLayer([],[800,400],function(o)
+var g=new gLayer([],[800,300],function(o)
 {    
     document.body.appendChild(document.createElement("br"));
     document.body.appendChild(document.createElement("br"));
@@ -264,17 +249,18 @@ var g=new gLayer([],[800,400],function(o)
     
     var div=document.createElement("div");
     div.innerHTML=
-    "<hr><a href=javascript:KOPT2_1CYCLE()>Run a 2-Opt SWAP cycle</a><br>"+
-    "<a href=javascript:KOPT3_MOVE_1CYCLE()>Run a 3-Opt MOVE cycle</a><br>"+
-    "<a href=javascript:REVERT_TOUR()>Revert to the initial tour</a>";
+    "<hr><a href=javascript:FLIP_1CYCLE(gTour)>Run a 2-Opt FLIP cycle</a><br>"+
+    "<a href=javascript:MOVE_1CYCLE(gTour)>Run a 3-Opt MOVE cycle</a><br>"+
+    "<a href=javascript:REVERT_TOUR(gTour)>Revert to the initial tour</a><hr>"+
+    "<a href=javascript:CLUSTEROPTIMIZE('init')>Full clustering and parallelization optimization</a>";
     document.body.appendChild(div);
     
-    t_=randomLocs(200,[0,o.w],[0,o.h]);
-    t=new Tour(t_);
+    t_=randomLocs(100,[0,o.w],[0,o.h]);
+    gTour=new Tour(t_);
     
-    initialDist=t.lastDist;
+    initialDist=gTour.lastDist;
     // Draw our initial state.
-    setTimeout("drawTour(t)",200);
+    setTimeout(function(){drawTour(gTour);},200);
 });
 
 function drawTour(tour,style,fill)
@@ -309,30 +295,74 @@ function drawTour(tour,style,fill)
 
 // Cycle through the Tour to apply an iteration at every location //////////////
 
-function KOPT2_1CYCLE()
+function FLIP_1CYCLE(t)
 {
     for(var i=0; i<t.locs.length; i++)
     for(var j=1; j<t.locs.length; j++)
-    if(i!=j) kopt2_FLIP(t,i,j);
+    if(i!=j) FLIP(t,i,j);
     g.clear();
     drawTour(t);
 }
 
-function KOPT3_MOVE_1CYCLE()
+function MOVE_1CYCLE(t)
 {
     var nl=t.locs.length;
     for(var i=0; i<nl; i++)
     for(var j=1; j<nl-i; j++)
     for(var s=-i; s<=nl-j-i; s++)
-    if(s) kopt3_MOVE(t,i,j,s);
+    if(s) MOVE(t,i,j,s);
     g.clear();    
     drawTour(t);
 }
 
-function REVERT_TOUR()
+function REVERT_TOUR(t)
 {
     g.clear();
     drawTour(t=new Tour(t_),{fillStyle:"#000", strokeStyle:"#000"});
+}
+
+// Work with the products of clustering ////////////////////////////////////////
+
+function BOUNDS(t)
+// Find the drawing bounds of the tour -- for updating the canvas.
+{
+    var maxX=t.locs[0].x;
+    var maxY=t.locs[0].y;
+    var minX=maxX;
+    var minY=maxY;
+    for(var i in t.locs)
+    {
+        var l=t.locs[i];
+        if(maxX<l.x) maxX=l.x;  if(maxY<l.y) maxY=l.y;
+        if(minX>l.x) minX=l.x;  if(minY>l.y) minY=l.y;
+    }
+    return [minX,minY,maxX,maxY];
+}
+
+function OPTIMIZE(t,bounds,oldDist,op,tries,flipOnly)
+// Optimize to the extent that FLIP and MOVE operations will permit.
+{
+    if(!oldDist)    oldDist=Number.POSITIVE_INFINITY;
+
+    if(!op)         { FLIP_1CYCLE(t); op=0; }
+    else            { MOVE_1CYCLE(t); }
+    
+    // Only clear the area we're updating.
+    //g.c.clearRect(bounds[0],bounds[1],bounds[2]-bounds[0],bounds[3]-bounds[1]);
+    drawTour(t,{fillStyle:"#000", strokeStyle:"#000"});
+
+    if(t.lastDist<oldDist) OPTIMIZE(t,bounds,t.lastDist,op,0,flipOnly);
+    else if(tries<3)       OPTIMIZE(t,bounds,t.lastDist,flipOnly? 0 : ((op+1)%2),tries+1,flipOnly);
+    else                   divDist.innerHTML="Partition tour optimization complete. Dist: "+(t.lastDist>>0);
+}
+
+function MERGEINTOTOUR1(t1,t2)
+// Stitch together tours which are closest.
+{
+    t1.locs=t1.locs.concat(t2.locs);    t1.lastDist=Number.POSITIVE_INFINITY;
+    t2.locs=[];                         t2.lastDist=0;
+    drawTour(t1,{fillStyle:"#000", strokeStyle:"#000"});    
+    return t1;
 }
 
 // for Concorde TSP solver -- to double check the results //////////////////////
