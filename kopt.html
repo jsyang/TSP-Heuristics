@@ -138,7 +138,7 @@ function CLUSTEROPTIMIZE(stage,info)
             return "#"+RandHexDigit()+RandHexDigit()+RandHexDigit();
         }
 
-        var cluster=KMEANS(10,t_);
+        var cluster=KMEANS(100,t_);
         var partition=[];
         for(var i in cluster)           partition.push(new Tour(cluster[i].subLocs));
 
@@ -255,7 +255,7 @@ var g=new gLayer([],[800,300],function(o)
     "<a href=javascript:CLUSTEROPTIMIZE('init')>Full clustering and parallelization optimization</a>";
     document.body.appendChild(div);
     
-    t_=randomLocs(100,[0,o.w],[0,o.h]);
+    t_=randomLocs(1000,[0,o.w],[0,o.h]);
     gTour=new Tour(t_);
     
     initialDist=gTour.lastDist;
